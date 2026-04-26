@@ -274,7 +274,7 @@ export function GlobalChatPanel() {
   } as const;
   const primaryButtonStyle = {
     background: "var(--accent)",
-    color: "var(--ink-invert)",
+    color: "#0a0a0a",
   } as const;
 
   return (
