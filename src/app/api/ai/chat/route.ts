@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { CHAT_SYSTEM_PROMPT, INTERVIEW_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { CHAT_CONTROL_SYSTEM_PROMPT, INTERVIEW_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { parseModelControlResponse } from "@/lib/ai/page-control";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
         ].join("\n")
       : "No context provided.";
 
-    const basePrompt = interview ? INTERVIEW_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT;
+    const basePrompt = interview ? INTERVIEW_SYSTEM_PROMPT : CHAT_CONTROL_SYSTEM_PROMPT;
     const sectionNote = interview && context?.section
       ? `\nYou are interviewing for the "${context.section}" section. The available fields and their current values are shown in the Draft Context above. Ask about the next empty field.`
       : "";
@@ -59,7 +60,8 @@ ${contextStr}`;
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: formattedMessages,
         generationConfig: {
-          temperature: interview ? 0.3 : 0.7,
+          responseMimeType: interview ? undefined : "application/json",
+          temperature: interview ? 0.3 : 0.4,
           maxOutputTokens: 1000,
         },
       }),
@@ -74,6 +76,27 @@ ${contextStr}`;
 
     if (!text) {
       throw new Error("Gemini returned an empty response");
+    }
+
+    if (!interview) {
+      const parsed = parseModelControlResponse(text);
+      if (parsed) {
+        return NextResponse.json({
+          ...parsed,
+          scope: { section: context?.controlScope?.section ?? context?.section ?? "general" },
+        });
+      }
+
+      return NextResponse.json({
+        text,
+        actions: [],
+        suggestedReplies: [
+          "Tell me what to fill here",
+          "Give me an example answer",
+          "Update this page for me",
+        ],
+        scope: { section: context?.controlScope?.section ?? context?.section ?? "general" },
+      });
     }
 
     return NextResponse.json({ text });
