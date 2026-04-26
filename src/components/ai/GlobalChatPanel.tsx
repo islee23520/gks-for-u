@@ -251,7 +251,7 @@ export function GlobalChatPanel() {
         <div className="mb-4 flex h-[500px] max-h-[calc(100vh-8rem)] w-80 flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950 sm:w-96">
           <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-800">
             <div>
-              <h2 className="text-sm font-semibold">GKS AI Assistant</h2>
+              <h2 className="text-sm font-semibold">GKS Ai Assisant</h2>
               <p className="text-xs text-zinc-500">
                 Context: {activePageContext.title}
                 {interviewMode ? " · Interview" : ""}
