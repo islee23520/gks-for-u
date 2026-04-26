@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "sh -c 'npm run typecheck:watch & exec next dev'",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --watch --noEmit --preserveWatchOutput",
     "test": "vitest run",
     "test:watch": "vitest"
   },
