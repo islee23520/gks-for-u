@@ -1,17 +1,90 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
-import { useDraft } from "@/lib/wizard/store";
+import { useDraft, patchSection, updateDraft, getDraft } from "@/lib/wizard/store";
+import {
+  INTERVIEWABLE_SECTIONS,
+  findNextQuestion,
+  buildUpdatesFromAnswer,
+  applyUpdates,
+} from "@/lib/ai/interview";
+import type { InterviewQuestion } from "@/lib/ai/interview";
 
 type Message = { role: "user" | "assistant"; content: string };
+
+const FREEFORM_GREETING = "Hi! I'm here to help with your GKS application. What do you need help with?";
+
+const PAGE_CONTEXT: Record<string, { title: string; focus: string; fields: string[] }> = {
+  general: {
+    title: "General",
+    focus: "Help the user with the page they are currently viewing.",
+    fields: [],
+  },
+  eligibility: {
+    title: "Eligibility Check",
+    focus: "Help the user understand GKS eligibility requirements and the meaning of the fields on the eligibility page.",
+    fields: ["date of birth", "citizenship", "GPA", "graduation date", "special flags"],
+  },
+  dashboard: {
+    title: "Dashboard",
+    focus: "Help the user understand their saved progress and where to go next.",
+    fields: ["progress", "next step", "saved application draft"],
+  },
+  track: {
+    title: "Application Track",
+    focus: "Help the user choose the right GKS track for their case.",
+    fields: ["track"],
+  },
+  profile: {
+    title: "Personal Information",
+    focus: "Help the user fill out personal identity and contact details exactly as required on the current page.",
+    fields: ["family name", "given name", "middle name", "date of birth", "gender", "citizenship", "address", "phone", "email"],
+  },
+  education: {
+    title: "Education",
+    focus: "Help the user fill out high school and GPA information for the current page.",
+    fields: ["high school name", "city", "start date", "end date", "graduation date", "GPA value", "GPA scale", "class rank percentile"],
+  },
+  languages: {
+    title: "Languages",
+    focus: "Help the user fill out TOPIK and English proficiency details for the current page.",
+    fields: ["TOPIK level", "TOPIK date", "English test", "English score"],
+  },
+  universities: {
+    title: "University Choices",
+    focus: "Help the user choose and fill university, department, and field of study details for the current page.",
+    fields: ["1st choice university", "1st department", "1st field of study", "2nd choice", "3rd choice"],
+  },
+  "personal-statement": {
+    title: "Personal Statement",
+    focus: "Help the user improve the personal statement section they are currently viewing.",
+    fields: ["motivation", "background", "achievements", "character"],
+  },
+  "study-plan": {
+    title: "Study Plan",
+    focus: "Help the user improve the study plan section they are currently viewing.",
+    fields: ["Korean language plan", "academic plan", "post-graduation plan"],
+  },
+  recommendation: {
+    title: "Recommendation",
+    focus: "Help the user draft or review the recommendation section they are currently viewing.",
+    fields: ["relationship to recommender", "academic ability", "character", "endorsement"],
+  },
+  review: {
+    title: "Review & Export",
+    focus: "Help the user review completeness and prepare export-ready application materials.",
+    fields: ["section completeness", "missing information", "export readiness"],
+  },
+};
 
 export function GlobalChatPanel() {
   const pathname = usePathname();
   const draft = useDraft();
   const [isOpen, setIsOpen] = useState(false);
+  const [interviewMode, setInterviewMode] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", content: "Hi! I'm here to help with your GKS application. What do you need help with?" }
+    { role: "assistant", content: FREEFORM_GREETING },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -19,6 +92,12 @@ export function GlobalChatPanel() {
 
   const isApplyRoute = pathname?.startsWith("/apply/");
   const section = isApplyRoute ? pathname?.split("/").pop() || "general" : "general";
+  const canInterview = isApplyRoute && INTERVIEWABLE_SECTIONS.has(section);
+
+  const currentQuestion = useCallback((): InterviewQuestion | undefined => {
+    if (!canInterview || !interviewMode) return undefined;
+    return findNextQuestion(section, draft);
+  }, [canInterview, interviewMode, section, draft]);
 
   useEffect(() => {
     if (isOpen) {
@@ -26,9 +105,45 @@ export function GlobalChatPanel() {
     }
   }, [messages, isOpen]);
 
-  const getRelevantContext = () => {
-    const context: any = { pathname, section: isApplyRoute ? section : "landing/other" };
-    
+  const resetToInterviewStart = useCallback(() => {
+    const q = findNextQuestion(section, draft);
+    if (q) {
+      setMessages([
+        { role: "assistant", content: `Let's fill out the **${section}** section. ${q.question}` },
+      ]);
+    } else {
+      setMessages([
+        { role: "assistant", content: `It looks like the **${section}** section is already complete! You can switch back to freeform chat if you'd like.` },
+      ]);
+    }
+  }, [section, draft]);
+
+  const toggleInterviewMode = useCallback(() => {
+    setInterviewMode((prev) => {
+      const next = !prev;
+      if (next) {
+        resetToInterviewStart();
+      } else {
+        setMessages([
+          { role: "assistant", content: FREEFORM_GREETING },
+        ]);
+      }
+      return next;
+    });
+  }, [resetToInterviewStart]);
+
+  const getRelevantContext = useCallback(() => {
+    const normalizedSection = isApplyRoute ? section : pathname === "/" ? "general" : pathname?.replace(/^\//, "") || "general";
+    const pageContext = PAGE_CONTEXT[normalizedSection] ?? PAGE_CONTEXT.general;
+    const context: Record<string, unknown> = {
+      pathname,
+      section: normalizedSection,
+      pageTitle: pageContext.title,
+      userLookingAt: pageContext.title,
+      assistantFocus: pageContext.focus,
+      visibleFields: pageContext.fields,
+    };
+
     if (isApplyRoute) {
       if (["track", "profile", "education", "languages"].includes(section)) {
         context.draftData = {
@@ -45,6 +160,43 @@ export function GlobalChatPanel() {
       }
     }
     return context;
+  }, [pathname, isApplyRoute, section, draft]);
+
+  const handleFreeformSubmit = async (_userMsg: string, newMessages: Message[]) => {
+    const res = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: newMessages,
+        context: getRelevantContext(),
+      }),
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch response");
+    const data = await res.json();
+    return data.text as string;
+  };
+
+  const handleInterviewSubmit = async (userMsg: string, newMessages: Message[]) => {
+    const q = currentQuestion();
+    if (q) {
+      const { updates, valid, normalized } = buildUpdatesFromAnswer(section, q, userMsg);
+
+      if (valid) {
+        applyUpdates(section, patchSection, updateDraft, updates);
+
+        const nextQ = findNextQuestion(section, getDraft());
+        const fieldLabel = q.label;
+        if (nextQ) {
+          return `✓ Got it — **${fieldLabel}** saved as \`${String(normalized)}\`.\n\nNext: ${nextQ.question}`;
+        }
+        return `✓ Got it — **${fieldLabel}** saved as \`${String(normalized)}\`.\n\nThat's everything for the **${section}** section! All fields are filled. You can continue in freeform mode or review your answers.`;
+      }
+
+      return `Hmm, that doesn't look quite right for **${q.label}**. Could you try again?\n\n${q.question}`;
+    }
+
+    return await handleFreeformSubmit(userMsg, newMessages);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,19 +210,11 @@ export function GlobalChatPanel() {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: newMessages,
-          context: getRelevantContext(),
-        }),
-      });
+      const text = interviewMode && canInterview
+        ? await handleInterviewSubmit(userMsg, newMessages)
+        : await handleFreeformSubmit(userMsg, newMessages);
 
-      if (!res.ok) throw new Error("Failed to fetch response");
-      const data = await res.json();
-      
-      setMessages([...newMessages, { role: "assistant", content: data.text }]);
+      setMessages([...newMessages, { role: "assistant", content: text }]);
     } catch (error) {
       console.error(error);
       setMessages([...newMessages, { role: "assistant", content: "Sorry, I encountered an error. Please try again." }]);
@@ -79,29 +223,50 @@ export function GlobalChatPanel() {
     }
   };
 
+  const modeLabel = interviewMode ? "Interview" : "Chat";
+  const placeholder = interviewMode && canInterview ? "Type your answer..." : "Ask a question...";
+
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {isOpen && (
         <div className="mb-4 flex h-[500px] max-h-[calc(100vh-8rem)] w-80 flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950 sm:w-96">
           <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-800">
             <div>
-              <h2 className="text-sm font-semibold">Application Assistant</h2>
-              <p className="text-xs text-zinc-500">Context: {isApplyRoute ? section : "General"}</p>
+              <h2 className="text-sm font-semibold">GKS AI Assistant</h2>
+              <p className="text-xs text-zinc-500">
+                Context: {isApplyRoute ? section : "General"}
+                {interviewMode ? " · Interview" : ""}
+              </p>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2">
+              {canInterview && (
+                <button
+                  onClick={toggleInterviewMode}
+                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                    interviewMode
+                      ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900 dark:text-emerald-300"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400"
+                  }`}
+                >
+                  {modeLabel}
+                </button>
+              )}
+              <button
+                onClick={() => setIsOpen(false)}
+                aria-label="Close AI assistant"
+                className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                ✕
+              </button>
+            </div>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  m.role === "user" 
-                    ? "bg-blue-600 text-white" 
+                  m.role === "user"
+                    ? "bg-blue-600 text-white"
                     : "bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
                 }`}>
                   {m.content}
@@ -124,7 +289,7 @@ export function GlobalChatPanel() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask a question..."
+                placeholder={placeholder}
                 className="flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700"
                 disabled={isLoading}
               />
@@ -139,10 +304,11 @@ export function GlobalChatPanel() {
           </form>
         </div>
       )}
-      
+
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
+          aria-label="Open AI assistant"
           className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
