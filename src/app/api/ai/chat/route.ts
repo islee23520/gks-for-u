@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { CHAT_SYSTEM_PROMPT, INTERVIEW_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 
 export const runtime = "nodejs";
 
@@ -16,17 +16,36 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { messages, context } = body;
+    const { messages, context, interview } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "Invalid messages array" }, { status: 400 });
     }
 
     const contextStr = context
-      ? `Current Section: ${context.section}\nDraft Context: ${JSON.stringify(context.draftData, null, 2)}`
+      ? [
+          `Current pathname: ${context.pathname ?? "unknown"}`,
+          `Current section: ${context.section ?? "unknown"}`,
+          `Current page title: ${context.pageTitle ?? "unknown"}`,
+          `User is currently looking at: ${context.userLookingAt ?? "unknown"}`,
+          `Assistant focus on this page: ${context.assistantFocus ?? "unknown"}`,
+          `Visible fields on this page: ${Array.isArray(context.visibleFields) ? context.visibleFields.join(", ") : "unknown"}`,
+          `Draft Context: ${JSON.stringify(context.draftData ?? {}, null, 2)}`,
+        ].join("\n")
       : "No context provided.";
 
-    const systemInstruction = `${CHAT_SYSTEM_PROMPT}\n\nContext:\n${contextStr}`;
+    const basePrompt = interview ? INTERVIEW_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT;
+    const sectionNote = interview && context?.section
+      ? `\nYou are interviewing for the "${context.section}" section. The available fields and their current values are shown in the Draft Context above. Ask about the next empty field.`
+      : "";
+    const systemInstruction = `${basePrompt}${sectionNote}
+
+You must automatically use the current page context below in every answer.
+Do not answer as if the user is on a generic page when a current page is provided.
+Prefer guidance that helps the user continue the form or task they are currently viewing.
+
+Context:
+${contextStr}`;
 
     const formattedMessages = messages.map((m: any) => ({
       role: m.role === "user" ? "user" : "model",
@@ -40,7 +59,7 @@ export async function POST(req: Request) {
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: formattedMessages,
         generationConfig: {
-          temperature: 0.7,
+          temperature: interview ? 0.3 : 0.7,
           maxOutputTokens: 1000,
         },
       }),
