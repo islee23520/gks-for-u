@@ -244,15 +244,47 @@ export function GlobalChatPanel() {
   const handleSuggestedReply = async (reply: string) => {
     await submitMessage(reply);
   };
+  const panelStyle = {
+    borderColor: "var(--line-strong)",
+    background: "var(--bg-card)",
+    color: "var(--ink)",
+    boxShadow: "var(--shadow)",
+  } as const;
+
+  const dividerStyle = { borderColor: "var(--line)" } as const;
+  const mutedTextStyle = { color: "var(--muted)" } as const;
+  const assistantBubbleStyle = {
+    background: "var(--bg-soft)",
+    color: "var(--ink)",
+  } as const;
+  const userBubbleStyle = {
+    background: "var(--accent)",
+    color: "var(--ink-invert)",
+  } as const;
+  const suggestionButtonStyle = {
+    borderColor: "var(--line-strong)",
+    color: "var(--ink-soft)",
+    background: "var(--bg)",
+  } as const;
+  const suggestionButtonHoverStyle = "hover:opacity-80";
+  const inputStyle = {
+    borderColor: "var(--line-strong)",
+    color: "var(--ink)",
+    background: "var(--bg)",
+  } as const;
+  const primaryButtonStyle = {
+    background: "var(--accent)",
+    color: "var(--ink-invert)",
+  } as const;
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {isOpen && (
-        <div className="mb-4 flex h-[500px] max-h-[calc(100vh-8rem)] w-80 flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950 sm:w-96">
-          <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="mb-4 flex h-[500px] max-h-[calc(100vh-8rem)] w-80 flex-col rounded-xl border sm:w-96" style={panelStyle}>
+          <div className="flex items-center justify-between border-b p-4" style={dividerStyle}>
             <div>
               <h2 className="text-sm font-semibold">GKS AI Assistant</h2>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs" style={mutedTextStyle}>
                 Context: {activePageContext.title}
                 {interviewMode ? " · Interview" : ""}
               </p>
@@ -263,17 +295,19 @@ export function GlobalChatPanel() {
                   onClick={toggleInterviewMode}
                   className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
                     interviewMode
-                      ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900 dark:text-emerald-300"
-                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400"
+                      ? ""
+                      : ""
                   }`}
+                  style={interviewMode ? { background: "var(--accent-soft)", color: "var(--accent-text)" } : assistantBubbleStyle}
                 >
                   {modeLabel}
                 </button>
               )}
               <button
                 onClick={() => setIsOpen(false)}
-                aria-label="Close AI assistant"
-                className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                aria-label="Close GKS AI Assistant"
+                className="rounded-md p-1 hover:opacity-80"
+                style={mutedTextStyle}
               >
                 ✕
               </button>
@@ -283,18 +317,17 @@ export function GlobalChatPanel() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  m.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
-                }`}>
+                <div
+                  className="max-w-[85%] rounded-lg px-3 py-2 text-sm"
+                  style={m.role === "user" ? userBubbleStyle : assistantBubbleStyle}
+                >
                   {m.content}
                 </div>
               </div>
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-500 dark:bg-zinc-900">
+                <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm" style={{ ...assistantBubbleStyle, ...mutedTextStyle }}>
                   Thinking...
                 </div>
               </div>
@@ -306,7 +339,8 @@ export function GlobalChatPanel() {
                     key={reply}
                     type="button"
                     onClick={() => void handleSuggestedReply(reply)}
-                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    className={`rounded-full border px-3 py-1 text-xs ${suggestionButtonHoverStyle}`}
+                    style={suggestionButtonStyle}
                   >
                     {reply}
                   </button>
@@ -316,20 +350,22 @@ export function GlobalChatPanel() {
             <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-zinc-200 p-3 dark:border-zinc-800">
+          <form onSubmit={handleSubmit} className="border-t p-3" style={dividerStyle}>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={placeholder}
-                className="flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700"
+                className="flex-1 rounded-md border px-3 py-1.5 text-sm focus:outline-none"
+                style={inputStyle}
                 disabled={isLoading}
               />
               <button
                 type="submit"
                 disabled={isLoading || !input.trim()}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                style={primaryButtonStyle}
               >
                 Send
               </button>
@@ -341,8 +377,9 @@ export function GlobalChatPanel() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          aria-label="Open AI assistant"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          aria-label="Open GKS AI Assistant"
+          className="flex h-12 w-12 items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2"
+          style={{ ...primaryButtonStyle, boxShadow: "var(--shadow)" }}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
