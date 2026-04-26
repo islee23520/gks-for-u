@@ -93,6 +93,8 @@ export function GlobalChatPanel() {
   const isApplyRoute = pathname?.startsWith("/apply/");
   const section = isApplyRoute ? pathname?.split("/").pop() || "general" : "general";
   const canInterview = isApplyRoute && INTERVIEWABLE_SECTIONS.has(section);
+  const normalizedSection = isApplyRoute ? section : pathname === "/" ? "general" : pathname?.replace(/^\//, "") || "general";
+  const activePageContext = PAGE_CONTEXT[normalizedSection] ?? PAGE_CONTEXT.general;
 
   const currentQuestion = useCallback((): InterviewQuestion | undefined => {
     if (!canInterview || !interviewMode) return undefined;
@@ -133,7 +135,6 @@ export function GlobalChatPanel() {
   }, [resetToInterviewStart]);
 
   const getRelevantContext = useCallback(() => {
-    const normalizedSection = isApplyRoute ? section : pathname === "/" ? "general" : pathname?.replace(/^\//, "") || "general";
     const pageContext = PAGE_CONTEXT[normalizedSection] ?? PAGE_CONTEXT.general;
     const context: Record<string, unknown> = {
       pathname,
@@ -160,7 +161,7 @@ export function GlobalChatPanel() {
       }
     }
     return context;
-  }, [pathname, isApplyRoute, section, draft]);
+  }, [pathname, isApplyRoute, section, draft, normalizedSection]);
 
   const handleFreeformSubmit = async (_userMsg: string, newMessages: Message[]) => {
     const res = await fetch("/api/ai/chat", {
@@ -232,9 +233,9 @@ export function GlobalChatPanel() {
         <div className="mb-4 flex h-[500px] max-h-[calc(100vh-8rem)] w-80 flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950 sm:w-96">
           <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-800">
             <div>
-              <h2 className="text-sm font-semibold">GKS AI Assistant</h2>
+              <h2 className="text-sm font-semibold">GKS Ai Assisant</h2>
               <p className="text-xs text-zinc-500">
-                Context: {isApplyRoute ? section : "General"}
+                Context: {activePageContext.title}
                 {interviewMode ? " · Interview" : ""}
               </p>
             </div>
