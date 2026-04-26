@@ -259,7 +259,7 @@ export function GlobalChatPanel() {
   } as const;
   const userBubbleStyle = {
     background: "var(--accent)",
-    color: "var(--ink-invert)",
+    color: "#0a0a0a",
   } as const;
   const suggestionButtonStyle = {
     borderColor: "var(--line-strong)",
