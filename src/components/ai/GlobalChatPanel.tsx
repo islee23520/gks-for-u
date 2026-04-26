@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { useDraft, patchSection, updateDraft, getDraft } from "@/lib/wizard/store";
+import { applyPageActions, buildControlScope, validateAndNormalizeActions, type ChatControlResponse } from "@/lib/ai/page-control";
 import {
   INTERVIEWABLE_SECTIONS,
   findNextQuestion,
@@ -86,6 +87,7 @@ export function GlobalChatPanel() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: FREEFORM_GREETING },
   ]);
+  const [suggestedReplies, setSuggestedReplies] = useState<[string, string, string] | null>(null);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -95,6 +97,7 @@ export function GlobalChatPanel() {
   const canInterview = isApplyRoute && INTERVIEWABLE_SECTIONS.has(section);
   const normalizedSection = isApplyRoute ? section : pathname === "/" ? "general" : pathname?.replace(/^\//, "") || "general";
   const activePageContext = PAGE_CONTEXT[normalizedSection] ?? PAGE_CONTEXT.general;
+  const controlScope = buildControlScope(normalizedSection, draft);
 
   const currentQuestion = useCallback((): InterviewQuestion | undefined => {
     if (!canInterview || !interviewMode) return undefined;
@@ -125,10 +128,12 @@ export function GlobalChatPanel() {
       const next = !prev;
       if (next) {
         resetToInterviewStart();
+        setSuggestedReplies(null);
       } else {
         setMessages([
           { role: "assistant", content: FREEFORM_GREETING },
         ]);
+        setSuggestedReplies(null);
       }
       return next;
     });
@@ -143,6 +148,7 @@ export function GlobalChatPanel() {
       userLookingAt: pageContext.title,
       assistantFocus: pageContext.focus,
       visibleFields: pageContext.fields,
+      controlScope,
     };
 
     if (isApplyRoute) {
@@ -161,7 +167,7 @@ export function GlobalChatPanel() {
       }
     }
     return context;
-  }, [pathname, isApplyRoute, section, draft, normalizedSection]);
+  }, [pathname, isApplyRoute, section, draft, normalizedSection, controlScope]);
 
   const handleFreeformSubmit = async (_userMsg: string, newMessages: Message[]) => {
     const res = await fetch("/api/ai/chat", {
@@ -174,7 +180,10 @@ export function GlobalChatPanel() {
     });
 
     if (!res.ok) throw new Error("Failed to fetch response");
-    const data = await res.json();
+    const data = (await res.json()) as ChatControlResponse;
+    const validatedActions = validateAndNormalizeActions(data.actions ?? [], controlScope);
+    applyPageActions(validatedActions, controlScope, patchSection, updateDraft);
+    setSuggestedReplies(data.suggestedReplies ?? null);
     return data.text as string;
   };
 
@@ -185,6 +194,7 @@ export function GlobalChatPanel() {
 
       if (valid) {
         applyUpdates(section, patchSection, updateDraft, updates);
+        setSuggestedReplies(null);
 
         const nextQ = findNextQuestion(section, getDraft());
         const fieldLabel = q.label;
@@ -200,13 +210,13 @@ export function GlobalChatPanel() {
     return await handleFreeformSubmit(userMsg, newMessages);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const submitMessage = async (rawInput: string) => {
+    if (!rawInput.trim() || isLoading) return;
 
-    const userMsg = input.trim();
-    setInput("");
+    const userMsg = rawInput.trim();
     const newMessages: Message[] = [...messages, { role: "user", content: userMsg }];
+    setInput("");
+    setSuggestedReplies(null);
     setMessages(newMessages);
     setIsLoading(true);
 
@@ -224,8 +234,16 @@ export function GlobalChatPanel() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitMessage(input);
+  };
+
   const modeLabel = interviewMode ? "Interview" : "Chat";
   const placeholder = interviewMode && canInterview ? "Type your answer..." : "Ask a question...";
+  const handleSuggestedReply = async (reply: string) => {
+    await submitMessage(reply);
+  };
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
@@ -279,6 +297,20 @@ export function GlobalChatPanel() {
                 <div className="max-w-[85%] rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-500 dark:bg-zinc-900">
                   Thinking...
                 </div>
+              </div>
+            )}
+            {!interviewMode && suggestedReplies && (
+              <div className="flex flex-wrap gap-2">
+                {suggestedReplies.map((reply) => (
+                  <button
+                    key={reply}
+                    type="button"
+                    onClick={() => void handleSuggestedReply(reply)}
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    {reply}
+                  </button>
+                ))}
               </div>
             )}
             <div ref={messagesEndRef} />
